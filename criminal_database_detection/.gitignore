@@ -1,0 +1,58 @@
+# =============================================================================
+# .gitignore — Criminal Face Detection System
+# =============================================================================
+
+# --- Python ---
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+dist/
+build/
+*.egg
+venv/
+env/
+.venv/
+*.pyo
+*.pyd
+
+# --- Java / Maven ---
+frontend/target/
+*.class
+*.jar
+*.war
+*.log
+.idea/
+*.iml
+.settings/
+.project
+.classpath
+.factorypath
+
+# --- AI Models (too large for git) ---
+backend/models/*.caffemodel
+backend/models/*.onnx
+backend/models/*.pb
+backend/models/*.pth
+
+# --- IDE ---
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# --- Database ---
+*.sql.bak
+
+# --- Environment ---
+.env
+.env.local
+*.env
+
+# --- OS ---
+.DS_Store
+desktop.ini
+ehthumbs.db
