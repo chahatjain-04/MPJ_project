@@ -25,6 +25,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from backend.config import (
     CORS_ORIGINS,
     RECOGNITION_SIMILARITY_THRESHOLD,
+    DISGUISE_RECOGNITION_THRESHOLD,
+    STRONG_MATCH_THRESHOLD,
     MAX_ALERTS_LIMIT,
 )
 from backend.schemas import (
@@ -227,6 +229,7 @@ async def recognize_faces(request: ImageRequest):
     for det in detections:
         face_crop = det["face_crop"]
         name = "Unknown"
+        label = "unknown"   # Will become "criminal" on any confirmed match
         confidence = 0.0
         is_disguised = False
         criminal_id = None
@@ -241,6 +244,7 @@ async def recognize_faces(request: ImageRequest):
             results.append(
                 RecognitionResult(
                     name="Unknown",
+                    label="unknown",
                     confidence=0.0,
                     is_disguised=False,
                     bounding_box=BoundingBox(
@@ -263,56 +267,78 @@ async def recognize_faces(request: ImageRequest):
 
         # -----------------------------------------------------------------
         # Step 4: Search the database for matching embeddings
+        # First pass: use the standard (stricter) threshold.
         # -----------------------------------------------------------------
         matches = await db_service.search_similar(
             embedding, threshold=RECOGNITION_SIMILARITY_THRESHOLD
         )
 
         if matches:
-            # Best match found via ArcFace embeddings
+            # Best match found via ArcFace embeddings (strict threshold)
             best = matches[0]
             name = best["name"]
             confidence = best["similarity"]
             criminal_id = best["id"]
+            label = "criminal"
             logger.info(
                 f"MATCH: '{name}' (confidence={confidence:.4f}, "
                 f"disguised={is_disguised})"
             )
         elif is_disguised:
             # ---------------------------------------------------------
-            # Step 4b: ArcFace failed + face is disguised → try LBP
+            # Step 4b: Strict ArcFace failed AND face is disguised.
+            # Give ArcFace a second chance with the lower disguise
+            # threshold before falling back to LBP.
             # ---------------------------------------------------------
-            logger.info("Face appears DISGUISED. Attempting LBP matching...")
+            logger.info(
+                "Face DISGUISED, retrying ArcFace with lower threshold "
+                f"({DISGUISE_RECOGNITION_THRESHOLD})..."
+            )
+            disguise_matches = await db_service.search_similar(
+                embedding, threshold=DISGUISE_RECOGNITION_THRESHOLD
+            )
 
-            # Extract LBP features from visible regions
-            lbp_features = disguise_handler.extract_lbp_features(face_crop)
-
-            if lbp_features:
-                # Get all stored LBP features for comparison
-                stored_lbp = await db_service.get_all_lbp_features()
-
-                # Attempt partial LBP matching
-                lbp_matches = disguise_handler.partial_match(
-                    lbp_features, stored_lbp
+            if disguise_matches:
+                best = disguise_matches[0]
+                name = best["name"] + " (disguised)"
+                confidence = best["similarity"]
+                criminal_id = best["id"]
+                label = "criminal"
+                logger.info(
+                    f"DISGUISE-THRESHOLD MATCH: '{name}' "
+                    f"(confidence={confidence:.4f})"
                 )
+            else:
+                # ---------------------------------------------------------
+                # Step 4c: Both ArcFace attempts failed → try LBP
+                # ---------------------------------------------------------
+                logger.info("ArcFace exhausted. Attempting LBP matching...")
 
-                if lbp_matches:
-                    best_lbp = lbp_matches[0]
-                    name = best_lbp["name"] + " (partial)"
-                    confidence = best_lbp["similarity"]
-                    criminal_id = best_lbp["id"]
-                    logger.info(
-                        f"LBP MATCH: '{name}' "
-                        f"(similarity={confidence:.4f}, "
-                        f"regions={best_lbp['matched_regions']})"
+                lbp_features = disguise_handler.extract_lbp_features(face_crop)
+
+                if lbp_features:
+                    stored_lbp = await db_service.get_all_lbp_features()
+                    lbp_matches = disguise_handler.partial_match(
+                        lbp_features, stored_lbp
                     )
+
+                    if lbp_matches:
+                        best_lbp = lbp_matches[0]
+                        name = best_lbp["name"] + " (partial)"
+                        confidence = best_lbp["similarity"]
+                        criminal_id = best_lbp["id"]
+                        label = "criminal"
+                        logger.info(
+                            f"LBP MATCH: '{name}' "
+                            f"(similarity={confidence:.4f}, "
+                            f"regions={best_lbp['matched_regions']})"
+                        )
 
         # -----------------------------------------------------------------
         # Step 5: Log alert if criminal identified
         # -----------------------------------------------------------------
         if criminal_id is not None:
             try:
-                # Encode face crop as base64 for alert storage
                 _, buffer = cv2.imencode(".jpg", face_crop)
                 face_b64 = base64.b64encode(buffer).decode("utf-8")
 
@@ -327,12 +353,33 @@ async def recognize_faces(request: ImageRequest):
 
         # -----------------------------------------------------------------
         # Step 6: Build result for this face
+        # label = "criminal" → frontend displays "Yes"
+        # label = "unknown"  → frontend displays "No"
+        #
+        # Disguise detection uses TWO signals combined with OR:
+        #   1. Skin-color occlusion (works for masks, scarves, cloth)
+        #   2. Confidence drop below STRONG_MATCH_THRESHOLD
+        #      (works for ANY material including hands, which are
+        #       skin-colored and defeat the skin detector)
+        # An unknown face always gets is_disguised=False.
         # -----------------------------------------------------------------
+        if label == "criminal":
+            confidence_drop_disguise = confidence < STRONG_MATCH_THRESHOLD
+            report_disguised = is_disguised or confidence_drop_disguise
+            if confidence_drop_disguise and not is_disguised:
+                logger.info(
+                    f"Disguise detected via confidence drop: {confidence:.4f} "
+                    f"< {STRONG_MATCH_THRESHOLD} (skin detector missed it)"
+                )
+        else:
+            report_disguised = False
+
         results.append(
             RecognitionResult(
                 name=name,
+                label=label,
                 confidence=round(confidence, 4),
-                is_disguised=is_disguised,
+                is_disguised=report_disguised,
                 bounding_box=BoundingBox(
                     x=det["x"],
                     y=det["y"],

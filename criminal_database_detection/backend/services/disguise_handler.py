@@ -117,17 +117,21 @@ class DisguiseHandler:
             else:
                 skin_fraction = 0.0
 
-            # If skin coverage is very low, this region is likely occluded
-            if skin_fraction < 0.10:
+            # If skin coverage is low, this region is likely occluded.
+            # Threshold raised to 0.18 so sunglasses/masks reliably trigger.
+            if skin_fraction < 0.18:
                 occluded_regions += 1
                 logger.debug(
                     f"Region '{region_name}' occluded: "
                     f"skin coverage = {skin_fraction:.2%}"
                 )
 
-        # Face is considered disguised if 3+ regions are occluded
-        # (2 was too aggressive and caused false positives on normal faces)
-        is_disguised = occluded_regions >= 3
+        # Face is considered disguised if 2+ regions are occluded.
+        # 2 catches typical real-world disguises:
+        #   - Sunglasses alone cover the eye region (1) + often nose_cheek (2)
+        #   - A face mask covers nose_cheek (2) + mouth_chin (3)
+        # Was 3 before — too strict: most disguises were missed.
+        is_disguised = occluded_regions >= 2
         if is_disguised:
             logger.info(
                 f"Face classified as DISGUISED ({occluded_regions}/{total_regions} "

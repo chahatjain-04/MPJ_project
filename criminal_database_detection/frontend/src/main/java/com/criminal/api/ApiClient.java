@@ -276,6 +276,12 @@ public class ApiClient {
             result.confidence = resultJson.get("confidence").getAsDouble();
             result.isDisguised = resultJson.get("is_disguised").getAsBoolean();
 
+            // label: "criminal" → backend confirmed a DB match
+            //        "unknown"  → no match found
+            result.label = resultJson.has("label")
+                    ? resultJson.get("label").getAsString()
+                    : "unknown";
+
             JsonObject boxJson = resultJson.getAsJsonObject("bounding_box");
             result.boundingBox = new BoundingBox();
             result.boundingBox.x = boxJson.get("x").getAsInt();
@@ -285,16 +291,16 @@ public class ApiClient {
             result.boundingBox.confidence = boxJson.get("confidence").getAsDouble();
 
             // -----------------------------------------------------------------
-            // Match level classification based on confidence thresholds.
-            // The backend's isDisguised flag (from skin-color + LBP analysis)
-            // is trusted as-is — we do NOT override it here.
+            // Match level classification based on label + confidence.
+            // Use the backend label field ("criminal"/"unknown") instead of
+            // parsing the name string so disguise suffixes don't break logic.
             // -----------------------------------------------------------------
-            double confPercent = result.confidence * 100.0;
+            boolean isCriminal = "criminal".equals(result.label);
+            double confPercent  = result.confidence * 100.0;
 
-            // Classify match level for display
-            if (!result.name.equals("Unknown") && confPercent > 80.0) {
+            if (isCriminal && confPercent > 75.0) {
                 result.matchLevel = "Strong Match";
-            } else if (!result.name.equals("Unknown") && confPercent >= 50.0) {
+            } else if (isCriminal) {
                 result.matchLevel = "Possible Match";
             } else {
                 result.matchLevel = "Unknown";
@@ -324,17 +330,24 @@ public class ApiClient {
     /** Single recognition result for one face. */
     public static class RecognitionResult {
         public String name;
+        /** "criminal" if matched in the DB, "unknown" otherwise. */
+        public String label;
         public double confidence;
         public boolean isDisguised;
         public BoundingBox boundingBox;
 
         /**
-         * Match level based on confidence thresholds:
-         *   - "Strong Match"   → confidence > 80%
-         *   - "Possible Match" → confidence 50–80%
-         *   - "Unknown"        → confidence < 50%
+         * Match level derived from label + confidence:
+         *   - "Strong Match"   → criminal AND confidence > 75%
+         *   - "Possible Match" → criminal AND confidence ≤ 75%
+         *   - "Unknown"        → label is "unknown"
          */
         public String matchLevel;
+
+        /** Convenience: true when this face matched a criminal in the DB. */
+        public boolean isCriminal() {
+            return "criminal".equals(label);
+        }
     }
 
     /** Response from /recognize endpoint. */

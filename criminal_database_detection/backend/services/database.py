@@ -89,11 +89,18 @@ class DatabaseService:
         for row in rows:
             # Parse JSON embedding string → numpy array
             embedding_list = json.loads(row.embedding)
+            emb = np.array(embedding_list, dtype=np.float32)
+
+            # L2-normalize so dot product == cosine similarity in search_similar
+            norm = np.linalg.norm(emb)
+            if norm > 0:
+                emb = emb / norm
+
             self._embedding_cache.append({
                 "id": row.id,
                 "name": row.name,
                 "crime": row.crime,
-                "embedding": np.array(embedding_list, dtype=np.float32),
+                "embedding": emb,
             })
 
         logger.info(
@@ -203,12 +210,17 @@ class DatabaseService:
             await session.refresh(criminal)
             criminal_id = criminal.id
 
-        # Update the in-memory cache immediately
+        # Update the in-memory cache immediately (L2-normalize for cosine search)
+        emb_copy = embedding.copy()
+        norm = np.linalg.norm(emb_copy)
+        if norm > 0:
+            emb_copy = emb_copy / norm
+
         self._embedding_cache.append({
             "id": criminal_id,
             "name": name,
             "crime": crime,
-            "embedding": embedding.copy(),
+            "embedding": emb_copy,
         })
 
         logger.info(

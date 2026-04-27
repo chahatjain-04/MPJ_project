@@ -304,22 +304,21 @@ public class MainFrame extends JFrame {
                 SwingUtilities.invokeLater(() -> {
                     int faceCount = response.results.size();
                     long matchCount = response.results.stream()
-                            .filter(r -> !r.name.equals("Unknown"))
+                            .filter(r -> r.isCriminal())
                             .count();
                     long disguisedCount = response.results.stream()
                             .filter(r -> r.isDisguised)
                             .count();
                     updateStatus(String.format(
-                            "Capturing... | Faces: %d | Matches: %d | Disguised: %d",
+                            "Capturing... | Faces: %d | Criminals: %d | Disguised: %d",
                             faceCount, matchCount, disguisedCount));
 
-                    // Add alerts only for recognized faces (name resolved)
+                    // Add alerts only for confirmed criminal matches
                     for (RecognitionResult result : response.results) {
-                        if (!result.name.equals("Unknown")) {
-                            // Format: "Strong Match: Rahul (85%) | Disguise: NO"
-                            // or: "Possible Match: Rahul (65%) | Disguise: YES"
+                        if (result.isCriminal()) {
+                            // "Criminal: Yes" for a match, "No" would never appear here
                             String alertText = String.format(
-                                    "⚠ %s: %s (%.1f%%) | Disguise: %s",
+                                    "⚠ %s: %s (%.1f%%) | Criminal: Yes | Disguise: %s",
                                     result.matchLevel,
                                     result.name,
                                     result.confidence * 100,
@@ -596,21 +595,26 @@ public class MainFrame extends JFrame {
                 g2.drawRect(bx, by, bw, bh);
 
                 // ─── Build label text ────────────────────────────────────
-                // Format: "Possible Match: Rahul (65%) | Disguise: YES"
-                String confText = String.format("%.1f%%", result.confidence * 100);
-                String disguiseTag = result.isDisguised ? "YES" : "NO";
+                // Line 1: "Strong Match: Rahul (85%)"
+                // Line 2: "Criminal: Yes"  or  "Criminal: No"
+                // Line 3: "Disguise: YES"  or  "Disguise: NO"
+                String confText     = String.format("%.1f%%", result.confidence * 100);
+                String criminalTag  = result.isCriminal() ? "Yes" : "No";
+                String disguiseTag  = result.isDisguised  ? "YES" : "NO";
                 String line1 = String.format("%s: %s (%s)", matchLevel, result.name, confText);
-                String line2 = String.format("Disguise: %s", disguiseTag);
+                String line2 = String.format("Criminal: %s", criminalTag);
+                String line3 = String.format("Disguise: %s", disguiseTag);
 
                 g2.setFont(FONT_NAME);
                 FontMetrics fmName = g2.getFontMetrics();
                 g2.setFont(FONT_DISGUISE);
-                FontMetrics fmDisguise = g2.getFontMetrics();
+                FontMetrics fmSub = g2.getFontMetrics();
 
-                int line1W = fmName.stringWidth(line1);
-                int line2W = fmDisguise.stringWidth(line2);
-                int labelW = Math.max(line1W, line2W) + 14;
-                int labelH = fmName.getHeight() + fmDisguise.getHeight() + 8;
+                int line1W  = fmName.stringWidth(line1);
+                int line2W  = fmSub.stringWidth(line2);
+                int line3W  = fmSub.stringWidth(line3);
+                int labelW  = Math.max(line1W, Math.max(line2W, line3W)) + 14;
+                int labelH  = fmName.getHeight() + fmSub.getHeight() * 2 + 10;
 
                 // ─── Draw label background above the box ─────────────────
                 int labelY = Math.max(by - labelH - 2, offsetY);
@@ -622,11 +626,19 @@ public class MainFrame extends JFrame {
                 g2.setColor(boxColor);
                 g2.drawString(line1, bx + 6, labelY + fmName.getAscent() + 3);
 
-                // ─── Line 2: Disguise status ─────────────────────────────
+                // ─── Line 2: Criminal Yes / No ───────────────────────────
                 g2.setFont(FONT_DISGUISE);
+                Color criminalColor = result.isCriminal()
+                        ? new Color(255, 80, 80)   // red-ish for "Yes"
+                        : new Color(100, 220, 100); // green-ish for "No"
+                g2.setColor(criminalColor);
+                int line2Y = labelY + fmName.getHeight() + fmSub.getAscent() + 4;
+                g2.drawString(line2, bx + 6, line2Y);
+
+                // ─── Line 3: Disguise status ─────────────────────────────
                 g2.setColor(result.isDisguised ? COLOR_DISGUISED : Color.LIGHT_GRAY);
-                g2.drawString(line2, bx + 6,
-                        labelY + fmName.getHeight() + fmDisguise.getAscent() + 5);
+                int line3Y = line2Y + fmSub.getHeight() + 2;
+                g2.drawString(line3, bx + 6, line3Y);
             }
         }
     }

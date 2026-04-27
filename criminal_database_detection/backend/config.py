@@ -45,10 +45,26 @@ ARCFACE_MODEL_PATH = os.path.join(MODEL_DIR, "arcface_r100.onnx")
 FACE_DETECTION_CONFIDENCE = float(os.getenv("FACE_DETECTION_CONFIDENCE", "0.5"))
 
 # Minimum cosine similarity between embeddings to consider a match.
-# A score of 0.6 means ~53° angle between vectors — fairly strict.
+# Lowered from 0.6 → 0.45 to handle slight appearance variations such as
+# lighting changes, mild disguises (glasses, hat, etc.).
 RECOGNITION_SIMILARITY_THRESHOLD = float(
-    os.getenv("RECOGNITION_SIMILARITY_THRESHOLD", "0.6")
+    os.getenv("RECOGNITION_SIMILARITY_THRESHOLD", "0.45")
 )
+
+# Even lower threshold used when the face is already flagged as disguised.
+# Allows ArcFace to still match criminals with heavier occlusion (mask, scarf).
+# Set higher than 0.30 to avoid too many false positives on unknowns.
+DISGUISE_RECOGNITION_THRESHOLD = float(
+    os.getenv("DISGUISE_RECOGNITION_THRESHOLD", "0.35")
+)
+
+# Confidence below this value means the criminal was matched but the face was
+# PARTIALLY COVERED (disguised) — hand, mask, cloth, etc.
+# Typical clear-face ArcFace scores: 0.70–0.95.  Covered face: 0.45–0.69.
+STRONG_MATCH_THRESHOLD = float(
+    os.getenv("STRONG_MATCH_THRESHOLD", "0.70")
+)
+
 
 # =============================================================================
 # OpenCV DNN Parameters

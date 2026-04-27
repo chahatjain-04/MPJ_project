@@ -45,6 +45,10 @@ class DetectionResponse(BaseModel):
 class RecognitionResult(BaseModel):
     """Result for a single recognized face."""
     name: str = Field(..., description="Matched criminal name or 'Unknown'")
+    label: str = Field(
+        "unknown",
+        description="'criminal' if matched in the database, 'unknown' otherwise"
+    )
     confidence: float = Field(..., description="Cosine similarity score (0-1)")
     is_disguised: bool = Field(False, description="Whether disguise was detected")
     bounding_box: BoundingBox = Field(..., description="Face location in the image")
